@@ -91,17 +91,33 @@ graph TD
 
 ```
 
-### Análise da Tríade CIA por Componente
+**Análise CIA Sistemática (Componentes do DFD):**
 
-- **Endpoint `/auth/token`:**
-- **Confidencialidade:** Alta. Senhas e tokens transmitidos devem trafegar via HTTPS para evitar interceptação (Man-in-the-Middle).
-- **Integridade:** Alta. As credenciais e claims do token assinado não podem ser adulteradas.
-- **Disponibilidade:** Crítica. A indisponibilidade impede a operação dos médicos e do fluxo de triagem.
+**1. Client (Usuário Final / Aplicação Cliente):**
+- **Integridade:** Validação de payload no lado do cliente antes do envio para evitar injeção de dados malformados.
+- **Confidencialidade:** Comunicação deve ocorrer exclusivamente via HTTPS/TLS para proteger os dados de saúde em trânsito contra interceptação.
+- **Disponibilidade:** Tratamento de timeouts e retentativas no cliente caso a API esteja sob alta carga.
 
-- **Endpoint `/predict` (Triagem Médica):**
-- **Confidencialidade (Foco LGPD):** Crítica. Trata dados de saúde sensíveis (Art. 5º da LGPD). A API rejeita identificadores diretos (ex: CPF, nome) e restringe o payload aos sintomas e idade.
-- **Integridade:** Alta. A descrição de sintomas e o retorno da triagem não podem ser adulterados em trânsito.
-- **Disponibilidade (Foco DoS):** Crítica. Endpoints de triagem não podem sofrer exaustão de recursos por requisições em massa, demandando validação estrita via Pydantic e rate limiting futuro.
+**2. API Gateway / Main Router (FastAPI):**
+- **Integridade:** Validação estrita de tipos via Pydantic em todas as requisições, rejeitando payloads anômalos.
+- **Confidencialidade:** Isolamento de variáveis de ambiente (secret keys, URLs de banco).
+- **Disponibilidade:** Implementação de Rate Limiting para mitigar ataques DoS, garantindo que o serviço de triagem permaneça operante.
+
+**3. Módulo de Autenticação (`/auth`):**
+- **Confidencialidade:** Senhas salvas com hash (bcrypt). Emissão de JWTs com tempo de expiração curto para reduzir a janela de exposição de tokens vazados.
+- **Integridade:** Verificação da assinatura digital do JWT (Evita falsificação de identidade).
+- **Disponibilidade:** Otimização da verificação de hash para evitar exaustão de CPU (prevenção contra ataques de negação de serviço algorítmica).
+
+**4. Módulo de Predição (`/predict`):**
+- **Confidencialidade:** Conformidade com a LGPD; os logs de inferência não armazenam PII (Informações Pessoalmente Identificáveis), apenas dados clínicos anonimizados.
+- **Integridade:** O modelo de predição é imutável em tempo de execução; validação de que os inputs textuais estão dentro dos limites de tamanho aceitáveis (evita buffer overflow no modelo).
+- **Disponibilidade:** Execução assíncrona ou paralelismo adequado para não bloquear o event loop do FastAPI durante a inferência.
+
+**5. Camada de Banco de Dados:**
+- **Confidencialidade:** Acesso restrito ao banco apenas pela API (sem exposição pública da porta do DB).
+- **Integridade:** Uso de chaves primárias e transações ACID para evitar registros órfãos ou dados inconsistentes.
+- **Disponibilidade:** Configuração de persistência em disco seguro (evitando perda de dados em caso de reinicialização do container/servidor).
+
 
 ### Escolha do Dataset
 
