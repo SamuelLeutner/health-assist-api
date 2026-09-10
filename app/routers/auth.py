@@ -1,19 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlmodel import Session, select
+
 from app.database import get_db
 from app.models.user import User
-
-from app.security.jwt import verify_password, create_access_token
+from app.schemas.auth import Token
+from app.security.jwt import create_access_token, verify_password
+from app.security.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+AUTH_RATE_LIMIT = "5/minute"
 
-@router.post("/token")
+
+@router.post("/token", response_model=Token)
+@limiter.limit(AUTH_RATE_LIMIT)
 def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.username == form_data.username).first()
+    user = db.exec(select(User).where(User.username == form_data.username)).first()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -23,4 +30,4 @@ def login_for_access_token(
         )
 
     access_token = create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return Token(access_token=access_token, token_type="bearer")

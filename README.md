@@ -12,22 +12,32 @@ Servir como backend seguro para triagem médica automatizada, priorizando o cump
 healthassist-api/
 ├── app/
 │   ├── config.py
+│   ├── database.py
 │   ├── main.py
+│   ├── seed.py
+│   ├── middleware/
+│   │   └── security_headers.py      # HSTS, X-Frame-Options, X-Content-Type-Options, CSP
+│   ├── models/
+│   │   ├── user.py                  # SQLModel
+│   │   └── prediction_log.py        # SQLModel
 │   ├── routers/
-│   │   ├── auth.py
+│   │   ├── auth.py                  # /auth/token (rate limited)
 │   │   ├── health.py
-│   │   └── predict.py
+│   │   └── predict.py               # POST / e GET /{id} (ownership check)
 │   ├── schemas/
 │   │   ├── auth.py
-│   │   └── predict.py
+│   │   └── predict.py               # extra="forbid" no modelo de entrada
 │   └── security/
-│       └── jwt.py
+│       ├── jwt.py
+│       └── rate_limit.py
 ├── data/
 │   └── .gitkeep
 ├── notebooks/
-│   └── .gitkeep
 │   └── health-assist.ipynb
-├── .env.example
+├── tests/
+│   ├── conftest.py                  # fixtures: banco isolado em memória, 2 usuários
+│   └── test_security.py             # 3 testes de segurança (OWASP)
+├── .env-example
 ├── .gitignore
 ├── README.md
 └── requirements.txt
@@ -51,18 +61,49 @@ pip install -r requirements.txt
 
 ```
 
-3. **Iniciar o servidor:**
+3. **Configurar variáveis de ambiente:**
+
+Copie `.env-example` para `.env` e preencha os valores (principalmente `SECRET_KEY`, com uma chave forte e secreta — nunca reaproveite a do exemplo). `CORS_ORIGINS` aceita uma lista separada por vírgula das origens de front-end permitidas.
+
+```bash
+cp .env-example .env
+
+```
+
+4. **Popular o banco com um usuário inicial (opcional, para testar manualmente):**
+
+```bash
+python -m app.seed
+# cria o usuário admin / senha123
+
+```
+
+5. **Iniciar o servidor:**
 
 ```bash
 uvicorn app.main:app --reload
 
 ```
 
-4. **Endpoints principais:**
+6. **Endpoints principais:**
 
-- `GET /health`: Estado da API (Acesso público).
-- `POST /auth/token`: Autenticação e geração do token JWT.
-- `POST /predict`: Classificação de triagem (Requer autenticação Bearer JWT).
+- `GET /health`: estado da API (acesso público).
+- `POST /auth/token`: autenticação e geração do token JWT. Limitado a **5 requisições/minuto por IP** contra brute force.
+- `POST /predict/`: classificação de triagem (requer Bearer JWT). Rejeita qualquer campo fora do schema (`422 Unprocessable Entity`).
+- `GET /predict/{id}`: retorna um log de predição pelo ID, **somente se pertencer ao usuário autenticado** (verificação de ownership / BOLA); caso contrário, `404`.
+
+## Controles OWASP Top 10 Implementados
+
+| Controle                        | Onde                                 | Observação                                                                                                                                                         |
+| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Validação estrita de entrada    | `app/schemas/predict.py`             | `extra="forbid"` rejeita campos não previstos (422)                                                                                                                |
+| Queries parametrizadas          | `app/models/*.py`, routers           | SQLModel/SQLAlchemy Core, sem SQL raw                                                                                                                              |
+| Verificação de ownership (BOLA) | `GET /predict/{id}`                  | 404 tanto pra recurso inexistente quanto de outro usuário, evitando enumeração                                                                                     |
+| Headers de segurança HTTP       | `app/middleware/security_headers.py` | HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Referrer-Policy                                                                                                |
+| CORS com allowlist              | `app/main.py` + `CORS_ORIGINS`       | Sem uso de `*` com `allow_credentials=True`                                                                                                                        |
+| Rate limiting no login          | `app/routers/auth.py`                | 5 req/min por IP — alto o bastante pra não travar um usuário legítimo que erra a senha, baixo o bastante pra inviabilizar brute force de dicionário em tempo hábil |
+| Senhas com hash                 | `app/security/jwt.py`                | bcrypt via passlib                                                                                                                                                 |
+| JWT com expiração curta         | `app/security/jwt.py` + `.env`       | `ACCESS_TOKEN_EXPIRE_MINUTES` reduz a janela de exposição de um token vazado                                                                                       |
 
 ## Documentação do Dataset (Tema 3)
 

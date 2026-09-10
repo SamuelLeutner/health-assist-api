@@ -1,11 +1,11 @@
-from sqlalchemy import Column, Integer, String
-from app.database import Base
+from typing import Optional
 
+from sqlmodel import Field, SQLModel
 
-class PredictionLog(Base):
+class PredictionLog(SQLModel, table=True):
     __tablename__ = "prediction_logs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
-    input_data = Column(String)
-    prediction_result = Column(String)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True, nullable=False)
+    input_data: str
+    prediction_result: str
