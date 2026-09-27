@@ -9,7 +9,6 @@ from app.security.jwt import get_current_user
 
 router = APIRouter(prefix="/predict", tags=["predict"])
 
-
 @router.post("/", response_model=PredictResponse)
 def predict_triage(
     request: PredictRequest,

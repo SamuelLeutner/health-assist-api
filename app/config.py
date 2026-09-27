@@ -10,7 +10,10 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:3000"
 
-    model_config = SettingsConfigDict(env_file=".env")
+    ZAP_API_URL: str = "http://127.0.0.1:8080"
+    TARGET_API: str = "http://host.docker.internal:8000"
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def cors_origins_list(self) -> list[str]:

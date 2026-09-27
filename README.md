@@ -10,33 +10,53 @@ Servir como backend seguro para triagem médica automatizada, priorizando o cump
 
 ```text
 healthassist-api/
+│
 ├── app/
 │   ├── config.py
 │   ├── database.py
 │   ├── main.py
 │   ├── seed.py
+│   │
 │   ├── middleware/
-│   │   └── security_headers.py      # HSTS, X-Frame-Options, X-Content-Type-Options, CSP
+│   │   └── security_headers.py      # HSTS, X-Frame-Options,
+│   │                                # X-Content-Type-Options, CSP
+│   │
 │   ├── models/
 │   │   ├── user.py                  # SQLModel
 │   │   └── prediction_log.py        # SQLModel
+│   │
 │   ├── routers/
 │   │   ├── auth.py                  # /auth/token (rate limited)
 │   │   ├── health.py
-│   │   └── predict.py               # POST / e GET /{id} (ownership check)
+│   │   └── predict.py               # POST / e GET /{id}
+│   │
 │   ├── schemas/
 │   │   ├── auth.py
-│   │   └── predict.py               # extra="forbid" no modelo de entrada
+│   │   └── predict.py               # extra="forbid"
+│   │
 │   └── security/
 │       ├── jwt.py
 │       └── rate_limit.py
-├── data/
-│   └── .gitkeep
+│
 ├── notebooks/
 │   └── health-assist.ipynb
+│
 ├── tests/
-│   ├── conftest.py                  # fixtures: banco isolado em memória, 2 usuários
-│   └── test_security.py             # 3 testes de segurança (OWASP)
+│   ├── conftest.py
+│   └── test_security.py
+│
+├── reports/
+│   ├── zap_report.html
+│   ├── zap_report.json
+│   └── zap_findings.md
+│
+├── docs/
+│   └── eda_report.md
+│
+├── scripts/
+│   └── run_zap_scan.py             # Orquestra o scan ZAP via API REST
+
+│
 ├── .env-example
 ├── .gitignore
 ├── README.md
@@ -46,120 +66,568 @@ healthassist-api/
 
 ## Como Executar Localmente
 
-1. **Criar e ativar o ambiente virtual:**
+### 1. Criar e ativar o ambiente virtual
 
 ```bash
 python -m venv venv
 source venv/bin/activate
-
 ```
 
-2. **Instalar dependências:**
+### 2. Instalar dependências
 
 ```bash
 pip install -r requirements.txt
-
 ```
 
-3. **Configurar variáveis de ambiente:**
+### 3. Configurar variáveis de ambiente
 
-Copie `.env-example` para `.env` e preencha os valores (principalmente `SECRET_KEY`, com uma chave forte e secreta — nunca reaproveite a do exemplo). `CORS_ORIGINS` aceita uma lista separada por vírgula das origens de front-end permitidas.
+Copie `.env-example` para `.env` e preencha os valores necessários.
 
 ```bash
 cp .env-example .env
-
 ```
 
-4. **Popular o banco com um usuário inicial (opcional, para testar manualmente):**
+A variável `SECRET_KEY` deve utilizar uma chave forte e secreta.
+
+`CORS_ORIGINS` aceita uma lista separada por vírgula das origens de front-end permitidas.
+
+### 4. Popular o banco
+
+Opcionalmente, para testes manuais:
 
 ```bash
 python -m app.seed
-# cria o usuário admin / senha123
-
 ```
 
-5. **Iniciar o servidor:**
+O seed cria o usuário inicial definido pelo projeto.
+
+### 5. Iniciar a API
+
+Para desenvolvimento local:
 
 ```bash
 uvicorn app.main:app --reload
-
 ```
 
-6. **Endpoints principais:**
+Para permitir que o OWASP ZAP executado em Docker consiga acessar a API pelo host, utilize:
 
-- `GET /health`: estado da API (acesso público).
-- `POST /auth/token`: autenticação e geração do token JWT. Limitado a **5 requisições/minuto por IP** contra brute force.
-- `POST /predict/`: classificação de triagem (requer Bearer JWT). Rejeita qualquer campo fora do schema (`422 Unprocessable Entity`).
-- `GET /predict/{id}`: retorna um log de predição pelo ID, **somente se pertencer ao usuário autenticado** (verificação de ownership / BOLA); caso contrário, `404`.
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-## Controles OWASP Top 10 Implementados
+A API ficará disponível em:
 
-| Controle                        | Onde                                 | Observação                                                                                                                                                         |
-| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Validação estrita de entrada    | `app/schemas/predict.py`             | `extra="forbid"` rejeita campos não previstos (422)                                                                                                                |
-| Queries parametrizadas          | `app/models/*.py`, routers           | SQLModel/SQLAlchemy Core, sem SQL raw                                                                                                                              |
-| Verificação de ownership (BOLA) | `GET /predict/{id}`                  | 404 tanto pra recurso inexistente quanto de outro usuário, evitando enumeração                                                                                     |
-| Headers de segurança HTTP       | `app/middleware/security_headers.py` | HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Referrer-Policy                                                                                                |
-| CORS com allowlist              | `app/main.py` + `CORS_ORIGINS`       | Sem uso de `*` com `allow_credentials=True`                                                                                                                        |
-| Rate limiting no login          | `app/routers/auth.py`                | 5 req/min por IP — alto o bastante pra não travar um usuário legítimo que erra a senha, baixo o bastante pra inviabilizar brute force de dicionário em tempo hábil |
-| Senhas com hash                 | `app/security/jwt.py`                | bcrypt via passlib                                                                                                                                                 |
-| JWT com expiração curta         | `app/security/jwt.py` + `.env`       | `ACCESS_TOKEN_EXPIRE_MINUTES` reduz a janela de exposição de um token vazado                                                                                       |
+```text
+http://127.0.0.1:8000
+```
 
-## Documentação do Dataset (Tema 3)
+e, a partir do container Docker do ZAP:
 
-- **Nome do Dataset:** AKCIT/MedPT
-- **Fonte / Link:** https://huggingface.co/datasets/AKCIT/MedPT
-- **Autores**: Farber, Fernanda Bufon and Brito, Iago Alves and Dollis, Julia Soares and Ribeiro, Pedro Schindler Freire Brasil and Sousa, Rafael Teixeira and Filho, Arlindo R. Galvão;
-- **Licença:** CC BY 4.0
-- **Justificativa da Escolha:** Decidi usar esse dataset por dois motivos, o primeiro é que tem uma grande quantidade de dados de treino com mais de 100 mil perguntas entre pacientes e médicos, outro ponto é a relevância dos dados, para um modelo voltado a triagem de pacientes o dataset precisa conter interações relatando sintomas e possíveis respostas dos médicos, sendo assim, procurei um dataset que tivesse uma quantidade abrangente de sintomas e que os mencionasse nas mais diversas situações e esse dataset engloba perguntas realizadas na Doctoralia uma das maiores plataformas de telemedicina do Brasil.
-- **Limpeza**:
-  Devido a base de dados ter sido bem estruturada desde o princípio, na própria EDA é visível que não tem dados nulos ou duplicados e portanto não ví a necessidade de realizar limpeza dentro da base.
+```text
+http://host.docker.internal:8000
+```
 
-## Arquitetura de Segurança e DFD
+> **Importante:** `127.0.0.1` dentro do container do ZAP aponta para o próprio container, e não para o computador que está executando o Docker.
+
+## Endpoints principais
+
+* `GET /health`: estado da API (acesso público).
+* `POST /auth/token`: autenticação e geração do token JWT. Limitado a **5 requisições/minuto por IP** contra brute force.
+* `POST /predict/`: classificação de triagem (requer Bearer JWT). Rejeita qualquer campo fora do schema (`422 Unprocessable Entity`).
+* `GET /predict/{id}`: retorna um log de predição pelo ID somente se pertencer ao usuário autenticado. Caso contrário, retorna `404`.
+
+---
+
+# OWASP ZAP
+
+## Por que utilizar Docker?
+
+O OWASP ZAP é executado em um container Docker separado da aplicação.
+
+Essa abordagem permite:
+
+* manter o ambiente Python da aplicação independente do ZAP;
+* utilizar uma versão reproduzível do ZAP;
+* evitar instalar Java/ZAP diretamente no sistema operacional;
+* facilitar a execução do scan em outros computadores;
+* separar a ferramenta de auditoria da aplicação que está sendo testada.
+
+A FastAPI continua sendo executada normalmente no ambiente virtual Python. O Docker é utilizado apenas para executar o ZAP.
+
+## Arquitetura do scan
+
+```text
+                 Host / Arch Linux
+┌─────────────────────────────────────────────────┐
+│                                                 │
+│  FastAPI                                        │
+│  0.0.0.0:8000                                   │
+│       ▲                                         │
+│       │                                         │
+│       │ host.docker.internal:8000               │
+│       │                                         │
+│  ┌────┴─────────────────────────────────────┐   │
+│  │ Docker                                   │   │
+│  │                                          │   │
+│  │  OWASP ZAP                               │   │
+│  │  API + Proxy: 0.0.0.0:8080               │   │
+│  │  (mesmo listener, Main Proxy)            │   │
+│  │                                          │   │
+│  │  Spider ───────► FastAPI                 │   │
+│  │                                          │   │
+│  └──────────────────────────────────────────┘   │
+│                    ▲                            │
+│                    │                            │
+│             127.0.0.1:8080                     │
+│                    │                            │
+│             Python script                       │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+O script Python acessa a API administrativa e o proxy do ZAP através do mesmo endereço:
+
+```text
+http://127.0.0.1:8080
+```
+
+O ZAP, por sua vez, acessa a aplicação FastAPI através de:
+
+```text
+http://host.docker.internal:8000
+```
+
+> **Nota técnica:** API e proxy do ZAP compartilham o mesmo "Main Proxy" (definido por `-host`/`-port`). Configurar `-port` e, separadamente, `network.localServers.mainProxy.port` com valores diferentes causa conflito — apenas um dos dois valores é efetivamente usado, e o outro nunca chega a abrir um listener real. Por isso este projeto usa uma única porta (8080) para os dois papéis.
+
+---
+
+## Executando o ZAP
+
+Com a FastAPI já executando na porta `8000`, iniciar o ZAP:
+
+```bash
+docker run --rm \
+  --add-host=host.docker.internal:host-gateway \
+  -p 8080:8080 \
+  ghcr.io/zaproxy/zaproxy:stable \
+  zap.sh -daemon \
+  -host 0.0.0.0 \
+  -port 8080 \
+  -config api.disablekey=true \
+  -config 'api.addrs.addr.name=.*' \
+  -config api.addrs.addr.regex=true
+```
+
+### Explicação dos parâmetros
+
+| Parâmetro                                      | Função                                                         |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `--rm`                                         | Remove o container quando o ZAP for encerrado                  |
+| `--add-host=host.docker.internal:host-gateway` | Permite ao container acessar o host Docker                     |
+| `-p 8080:8080`                                 | Expõe a API REST **e** o proxy HTTP do ZAP (mesmo listener)    |
+| `-daemon`                                      | Executa o ZAP sem interface gráfica                            |
+| `-host 0.0.0.0`                                | Faz o ZAP escutar em todas as interfaces                       |
+| `-port 8080`                                   | Define a porta do Main Proxy do ZAP — serve API e proxy juntos |
+| `api.disablekey=true`                          | Desabilita a API key para o ambiente local                     |
+| `api.addrs.addr.name=.*`                       | Permite acesso à API a partir dos endereços necessários        |
+| `api.addrs.addr.regex=true`                    | Interpreta `.*` como expressão regular                         |
+
+> A configuração `api.disablekey=true` e `api.addrs.addr.name=.*` é adequada para o ambiente local deste trabalho, mas não deve ser utilizada dessa forma em uma instalação do ZAP exposta a uma rede não confiável.
+
+## Verificando se o ZAP está funcionando
+
+Antes de executar o script de scan, testar a API do ZAP:
+
+```bash
+curl http://127.0.0.1:8080/JSON/core/view/version/
+```
+
+A resposta deve conter a versão do ZAP:
+
+```json
+{
+  "version": "..."
+}
+```
+
+Também é importante verificar se o container consegue acessar a FastAPI.
+
+Primeiro obtenha o ID do container:
+
+```bash
+docker ps
+```
+
+Depois:
+
+```bash
+docker exec <CONTAINER_ID> \
+  curl http://host.docker.internal:8000/health
+```
+
+A API deve retornar uma resposta válida.
+
+Se esse comando falhar, o problema está na comunicação:
+
+```text
+ZAP container → FastAPI
+```
+
+e o scan não produzirá resultados úteis.
+
+---
+
+# Executando o scan pelo Python
+
+O projeto utiliza a API REST do ZAP através da biblioteca `requests`.
+
+As configurações (`config.py` / `.env`) devem apontar para:
+
+```text
+ZAP_API_URL=http://127.0.0.1:8080
+TARGET_API=http://host.docker.internal:8000
+```
+
+O script:
+
+```text
+app/run_zap_scan.py
+```
+
+realiza as seguintes operações:
+
+1. verifica a conexão com a API do ZAP;
+2. inicia o Spider;
+3. monitora o progresso do Spider;
+4. aguarda o Passive Scanner esvaziar a fila de registros pendentes;
+5. solicita o relatório HTML;
+6. salva o relatório em `reports/zap_report.html`.
+
+O fluxo é:
+
+```text
+Python
+  │
+  │ GET /JSON/core/view/version/
+  ▼
+ZAP
+  │
+  │ POST/GET Spider
+  ▼
+FastAPI
+  │
+  │ respostas HTTP
+  ▼
+ZAP Passive Scanner
+  │
+  ▼
+Relatório
+```
+
+## Executando
+
+Com a FastAPI e o ZAP em execução:
+
+```bash
+python app/run_zap_scan.py
+```
+
+O resultado esperado é semelhante a:
+
+```text
+Conectando ao motor do OWASP ZAP...
+ZAP conectado. Versão: 2.17.0
+
+Iniciando varredura Spider no alvo:
+http://host.docker.internal:8000
+
+Spider iniciado com ID: 0
+Progresso do Spider: 0%
+Progresso do Spider: 100%
+
+Spider finalizado.
+Aguardando o Passive Scanner esvaziar a fila...
+Registros pendentes no Passive Scanner: 0
+
+Sucesso! Relatório gerado em:
+.../reports/zap_report.html
+```
+
+## Por que o relatório pode aparecer com poucos ou nenhum finding?
+
+O relatório do ZAP depende de o ZAP realmente conseguir observar tráfego da aplicação.
+
+Se o Spider encontrar poucos endpoints, ou se pouco tráfego passar pelo proxy do ZAP, o relatório terá poucos ou nenhum finding — isso é um resultado válido, não um erro do pipeline. Para aumentar a cobertura, envie tráfego real através do proxy (`-x http://127.0.0.1:8080`) contra os endpoints da API antes de gerar o relatório, além do Spider.
+
+Se o relatório vier genuinamente vazio (sem sequer a estrutura HTML populada), verificar nesta ordem:
+
+### 1. FastAPI está executando?
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+### 2. FastAPI está escutando em `0.0.0.0`?
+
+Utilizar:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+e não somente:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### 3. O container consegue acessar a API?
+
+```bash
+docker exec <CONTAINER_ID> \
+  curl http://host.docker.internal:8000/health
+```
+
+### 4. O alvo configurado no Python está correto?
+
+Correto para o ZAP em Docker:
+
+```text
+http://host.docker.internal:8000
+```
+
+Incorreto:
+
+```text
+http://127.0.0.1:8000
+```
+
+porque `127.0.0.1` dentro do container representa o próprio container.
+
+---
+
+# Scan Passivo
+
+O objetivo deste trabalho é realizar uma auditoria passiva da API.
+
+O Spider solicita os endpoints da aplicação e o ZAP analisa as requisições e respostas observadas sem executar ataques ativos contra a aplicação.
+
+O relatório deve ser salvo em:
+
+```text
+reports/zap_report.html
+```
+
+Quando disponível, também pode ser mantida uma versão estruturada:
+
+```text
+reports/zap_report.json
+```
+
+O relatório entregue deve ser acompanhado do documento:
+
+```text
+reports/zap_findings.md
+```
+
+Esse documento deve registrar, para cada finding de severidade **Medium** ou **High**:
+
+* nome do finding;
+* severidade;
+* endpoint afetado;
+* descrição do problema;
+* impacto;
+* correção implementada;
+* ou justificativa para aceitação do risco.
+
+---
+
+# Controles OWASP Top 10 Implementados
+
+| Controle                        | Onde                                 | Observação                                                          |
+| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| Validação estrita de entrada    | `app/schemas/predict.py`             | `extra="forbid"` rejeita campos não previstos (422)                 |
+| Queries parametrizadas          | `app/models/*.py`, routers           | SQLModel/SQLAlchemy Core, sem SQL raw                               |
+| Verificação de ownership (BOLA) | `GET /predict/{id}`                  | 404 para recurso inexistente ou de outro usuário                    |
+| Headers de segurança HTTP       | `app/middleware/security_headers.py` | HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Referrer-Policy |
+| CORS com allowlist              | `app/main.py` + `CORS_ORIGINS`       | Sem uso de `*` com credenciais                                      |
+| Rate limiting no login          | `app/routers/auth.py`                | 5 req/min por IP                                                    |
+| Senhas com hash                 | `app/security/jwt.py`                | bcrypt via passlib                                                  |
+| JWT com expiração curta         | `app/security/jwt.py` + `.env`       | Reduz a janela de exposição de tokens                               |
+
+## Justificativa do rate limiting
+
+O endpoint `/auth/token` é um alvo relevante para ataques de brute force.
+
+O limite adotado é:
+
+```text
+5 requisições por minuto por IP
+```
+
+O objetivo é reduzir significativamente a quantidade de tentativas automatizadas de autenticação sem impedir o uso normal por um usuário legítimo que eventualmente erre sua senha.
+
+A implementação deve retornar:
+
+```text
+HTTP 429 Too Many Requests
+```
+
+quando o limite for excedido.
+
+---
+
+# Testes de Segurança
+
+Executar:
+
+```bash
+pytest tests/
+```
+
+A suíte deve cobrir pelo menos:
+
+1. tentativa de acesso sem token;
+2. tentativa de acesso a recurso pertencente a outro usuário;
+3. envio de campo extra no body.
+
+Exemplo de comportamento esperado:
+
+```text
+Sem token
+→ 401/403
+
+Recurso de outro usuário
+→ 404
+
+Campo extra
+→ 422
+
+Rate limit excedido
+→ 429
+```
+
+---
+
+# Documentação do Dataset
+
+* **Nome do Dataset:** Medical Symptom and Triage Dataset (ou equivalente escolhido pela dupla)
+* **Fonte / Link:** [Inserir Link do Kaggle / Repositório de Dados]
+* **Licença:** [Ex: CC BY 4.0 / Open Data Commons]
+
+### Justificativa da escolha
+
+Contém registros textuais de sintomas e categorias clínicas de triagem sem identificadores pessoais diretos (PII), permitindo o treinamento do agente sob estrita conformidade com a LGPD.
+
+### Escolha do Dataset
+
+* **Licença:** CC-BY-4.0;
+* **Editor:** European Language Resources Association (ELRA);
+* **Autores:** Farber, Fernanda Bufon; Brito, Iago Alves; Dollis, Julia Soares; Ribeiro, Pedro Schindler Freire Brasil; Sousa, Rafael Teixeira; Filho, Arlindo R. Galvão.
+
+### Razão da escolha
+
+Decidi usar esse dataset por dois motivos. O primeiro é que ele possui uma grande quantidade de dados de treino, com mais de 100 mil perguntas entre pacientes e médicos. Outro ponto é a relevância dos dados: para um modelo voltado à triagem de pacientes, o dataset precisa conter interações relatando sintomas e possíveis respostas dos médicos.
+
+Sendo assim, procurei um dataset que tivesse uma quantidade abrangente de sintomas e que os mencionasse nas mais diversas situações. Esse dataset engloba perguntas realizadas na Doctoralia, uma das maiores plataformas de telemedicina do Brasil.
+
+### Limpeza
+
+Devido à base de dados ter sido bem estruturada desde o princípio, na própria EDA é visível que não há dados nulos ou duplicados e, portanto, não foi identificada necessidade de realizar uma etapa adicional de limpeza dentro da base.
+
+---
+
+# EDA
+
+O notebook:
+
+```text
+notebooks/health-assist.ipynb
+```
+
+deve conter:
+
+* análise exploratória dos dados;
+* estatísticas descritivas;
+* heatmap de correlação utilizando Seaborn;
+* scatter plots relevantes;
+* pelo menos um teste de hipótese utilizando SciPy;
+* interpretação do p-valor;
+* relação dos resultados com a hipótese formulada no TP1.
+
+O relatório separado da EDA deve ser mantido em:
+
+```text
+docs/eda_report.md
+```
+
+e conter as seções:
+
+1. Problema;
+2. Dados;
+3. Análise;
+4. Insights principais;
+5. Limitações;
+6. Próximos passos.
+
+Os próximos passos devem estabelecer uma conexão com a etapa de classificação prevista para o TP3.
+
+---
+
+# Arquitetura de Segurança e DFD
 
 ```mermaid
 graph TD
+
     User[Paciente / Operador Médico] -->|1. POST /auth/token| AuthEndpoint[Boundary: /auth/token]
+
     AuthEndpoint -->|2. Valida Credenciais| AuthLogic[Lógica JWT]
+
     AuthLogic -->|3. Retorna Token JWT| User
 
     User -->|4. Header Bearer + JSON Sintomas| PredictEndpoint[Trust Boundary: /predict]
 
     subgraph Protected_Internal_API [Ambiente Protegido]
+
         PredictEndpoint -->|5. Valida Token| JWTValidator[Validador JWT]
+
         JWTValidator -->|6. Payload Limpo| ModelPlaceholder[Agente de Triagem]
+
         ModelPlaceholder -->|7. Categoria| PredictEndpoint
+
     end
 
     PredictEndpoint -->|8. Resposta JSON| User
-
 ```
 
-**Análise CIA Sistemática (Componentes do DFD):**
+## Análise CIA Sistemática
 
-**1. Client (Usuário Final / Aplicação Cliente):**
-- **Integridade:** Validação de payload no lado do cliente antes do envio para evitar injeção de dados malformados.
-- **Confidencialidade:** Comunicação deve ocorrer exclusivamente via HTTPS/TLS para proteger os dados de saúde em trânsito contra interceptação.
-- **Disponibilidade:** Tratamento de timeouts e retentativas no cliente caso a API esteja sob alta carga.
+### 1. Client
 
-**2. API Gateway / Main Router (FastAPI):**
-- **Integridade:** Validação estrita de tipos via Pydantic em todas as requisições, rejeitando payloads anômalos.
-- **Confidencialidade:** Isolamento de variáveis de ambiente (secret keys, URLs de banco).
-- **Disponibilidade:** Implementação de Rate Limiting para mitigar ataques DoS, garantindo que o serviço de triagem permaneça operante.
+* **Integridade:** validação de payload no lado do cliente antes do envio.
+* **Confidencialidade:** comunicação deve ocorrer exclusivamente via HTTPS/TLS em ambiente de produção.
+* **Disponibilidade:** tratamento de timeouts e retentativas no cliente quando apropriado.
 
-**3. Módulo de Autenticação (`/auth`):**
-- **Confidencialidade:** Senhas salvas com hash (bcrypt). Emissão de JWTs com tempo de expiração curto para reduzir a janela de exposição de tokens vazados.
-- **Integridade:** Verificação da assinatura digital do JWT (Evita falsificação de identidade).
-- **Disponibilidade:** Otimização da verificação de hash para evitar exaustão de CPU (prevenção contra ataques de negação de serviço algorítmica).
+### 2. API Gateway / Main Router
 
-**4. Módulo de Predição (`/predict`):**
-- **Confidencialidade:** Conformidade com a LGPD; os logs de inferência não armazenam PII (Informações Pessoalmente Identificáveis), apenas dados clínicos anonimizados.
-- **Integridade:** O modelo de predição é imutável em tempo de execução; validação de que os inputs textuais estão dentro dos limites de tamanho aceitáveis (evita buffer overflow no modelo).
-- **Disponibilidade:** Execução assíncrona ou paralelismo adequado para não bloquear o event loop do FastAPI durante a inferência.
+* **Integridade:** validação estrita de tipos via Pydantic.
+* **Confidencialidade:** isolamento de variáveis de ambiente.
+* **Disponibilidade:** rate limiting para mitigação de ataques de negação de serviço.
 
-**5. Camada de Banco de Dados:**
-- **Confidencialidade:** Acesso restrito ao banco apenas pela API (sem exposição pública da porta do DB).
-- **Integridade:** Uso de chaves primárias e transações ACID para evitar registros órfãos ou dados inconsistentes.
-- **Disponibilidade:** Configuração de persistência em disco seguro (evitando perda de dados em caso de reinicialização do container/servidor).
+### 3. Módulo de Autenticação
 
+* **Confidencialidade:** senhas armazenadas com hash bcrypt e JWTs com expiração.
+* **Integridade:** verificação da assinatura do JWT.
+* **Disponibilidade:** limitação de tentativas de autenticação.
 
+### 4. Módulo de Predição
+
+* **Confidencialidade:** logs de inferência sem PII.
+* **Integridade:** validação dos inputs e limites de tamanho.
+* **Disponibilidade:** execução adequada da inferência para evitar bloqueio do event loop.
+
+### 5. Banco de Dados
+
+* **Confidencialidade:** acesso restrito à API.
+* **Integridade:** chaves primárias e transações.
+* **Disponibilidade:** persistência adequada dos dados.
