@@ -40,8 +40,8 @@ healthassist-api/
 ├── .env-example
 ├── .gitignore
 ├── README.md
+├── EDA.md
 └── requirements.txt
-
 ```
 
 ## Como Executar Localmente
@@ -107,10 +107,13 @@ uvicorn app.main:app --reload
 
 ## Documentação do Dataset (Tema 3)
 
-- **Nome do Dataset:** Medical Symptom and Triage Dataset (ou equivalente escolhido pela dupla)
-- **Fonte / Link:** [Inserir Link do Kaggle / Repositório de Dados]
-- **Licença:** [Ex: CC BY 4.0 / Open Data Commons]
-- **Justificativa da Escolha:** Contém registros textuais de sintomas e categorias clínicas de triagem sem identificadores pessoais diretos (PII), permitindo o treinamento do agente sob estrita conformidade com a LGPD.
+- **Nome do Dataset:** AKCIT/MedPT
+- **Fonte / Link:** https://huggingface.co/datasets/AKCIT/MedPT
+- **Autores**: Farber, Fernanda Bufon and Brito, Iago Alves and Dollis, Julia Soares and Ribeiro, Pedro Schindler Freire Brasil and Sousa, Rafael Teixeira and Filho, Arlindo R. Galvão;
+- **Licença:** CC BY 4.0
+- **Justificativa da Escolha:** Decidi usar esse dataset por dois motivos, o primeiro é que tem uma grande quantidade de dados de treino com mais de 100 mil perguntas entre pacientes e médicos, outro ponto é a relevância dos dados, para um modelo voltado a triagem de pacientes o dataset precisa conter interações relatando sintomas e possíveis respostas dos médicos, sendo assim, procurei um dataset que tivesse uma quantidade abrangente de sintomas e que os mencionasse nas mais diversas situações e esse dataset engloba perguntas realizadas na Doctoralia uma das maiores plataformas de telemedicina do Brasil.
+- **Limpeza**:
+  Devido a base de dados ter sido bem estruturada desde o princípio, na própria EDA é visível que não tem dados nulos ou duplicados e portanto não ví a necessidade de realizar limpeza dentro da base.
 
 ## Arquitetura de Segurança e DFD
 
@@ -160,16 +163,3 @@ graph TD
 - **Disponibilidade:** Configuração de persistência em disco seguro (evitando perda de dados em caso de reinicialização do container/servidor).
 
 
-### Escolha do Dataset
-
-- **Licença**: CC-BY-4.0;
-
-- **Editor**: European Language Resources Association (ELRA);
-
-- **Autores**: Farber, Fernanda Bufon and Brito, Iago Alves and Dollis, Julia Soares and Ribeiro, Pedro Schindler Freire Brasil and Sousa, Rafael Teixeira and Filho, Arlindo R. Galvão;
-
-- **Razão da escolha**:
-  Decidi usar esse dataset por dois motivos, o primeiro é que tem uma grande quantidade de dados de treino com mais de 100 mil perguntas entre pacientes e médicos, outro ponto é a relevância dos dados, para um modelo voltado a triagem de pacientes o dataset precisa conter interações relatando sintomas e possíveis respostas dos médicos, sendo assim, procurei um dataset que tivesse uma quantidade abrangente de sintomas e que os mencionasse nas mais diversas situações e esse dataset engloba perguntas realizadas na Doctoralia uma das maiores plataformas de telemedicina do Brasil.
-
-- **Limpeza**:
-  Devido a base de dados ter sido bem estruturada desde o princípio, na própria EDA é visível que não tem dados nulos ou duplicados e portanto não ví a necessidade de realizar limpeza dentro da base.
