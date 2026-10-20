@@ -14,7 +14,7 @@ init_db()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="API de Triagem Médica com foco em segurança LGPD e resiliência DoS.",
+    description="API para classificação de intenções e suporte médico. Inclui proteções contra BOLA, Rate Limiting e cabeçalhos de segurança padrão OWASP.",
     version="1.0.0",
 )
 

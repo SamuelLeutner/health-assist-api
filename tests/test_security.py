@@ -1,13 +1,70 @@
-from fastapi.testclient import TestClient
-from sqlmodel import Session
-
 from app.models.prediction_log import PredictionLog
+from fastapi.testclient import TestClient
 from app.models.user import User
+from sqlmodel import Session
+from app.main import app
 
 VALID_PREDICT_PAYLOAD = {
     "symptoms_description": "Dor de cabeça forte e febre há dois dias.",
     "patient_age": 30,
 }
+
+
+client = TestClient(app)
+
+
+def test_security_headers_are_present():
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    headers = response.headers
+
+    assert "X-Content-Type-Options" in headers
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert "X-Frame-Options" in headers
+    assert "Strict-Transport-Security" in headers
+
+
+def test_rate_limiting():
+    isolated_client = TestClient(app, client=("10.0.0.99", 50000))
+
+    endpoint = "/auth/token"
+    limit = 5
+
+    for _ in range(limit):
+        isolated_client.post(endpoint, data={"username": "test", "password": "123"})
+
+    response = isolated_client.post(
+        endpoint, data={"username": "test", "password": "123"}
+    )
+    assert response.status_code == 429
+
+
+def test_input_validation_malformed_data():
+    response = client.post("/auth/token", json={"username": 12345, "password": ""})
+    assert response.status_code == 422
+
+
+def test_authentication_failure():
+    response = client.post(
+        "/auth/token", data={"username": "usuario_falso", "password": "senha_errada"}
+    )
+    assert response.status_code in [401, 403]
+
+
+def test_bola_protection():
+    headers_user_a = {"Authorization": "Bearer token_do_usuario_a"}
+
+    response = client.get("/users/999/data", headers=headers_user_a)
+
+    assert response.status_code in [403, 404]
+
+
+def test_security_headers_are_present():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert "X-Content-Type-Options" in response.headers
+    assert "X-Frame-Options" in response.headers
 
 
 def test_predict_without_token_is_rejected(client: TestClient):
