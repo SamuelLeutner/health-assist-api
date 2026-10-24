@@ -52,12 +52,29 @@ def test_authentication_failure():
     assert response.status_code in [401, 403]
 
 
-def test_bola_protection():
-    headers_user_a = {"Authorization": "Bearer token_do_usuario_a"}
+def test_bola_protection(
+    client: TestClient,
+    session: Session,
+    user_a: User,
+    user_b: User,
+    user_a_token: str,
+    user_b_token: str,
+):
+    log = PredictionLog(
+        user_id=user_a.id,
+        input_data="Sintomas confidenciais do usuário A",
+        prediction_result="Urgência Baixa",
+    )
+    session.add(log)
+    session.commit()
+    session.refresh(log)
 
-    response = client.get("/users/999/data", headers=headers_user_a)
+    response = client.get(
+        f"/predict/{log.id}",
+        headers={"Authorization": f"Bearer {user_b_token}"},
+    )
 
-    assert response.status_code in [403, 404]
+    assert response.status_code == 404
 
 
 def test_security_headers_are_present():
@@ -114,3 +131,15 @@ def test_predict_rejects_unexpected_extra_field(client: TestClient, user_a_token
     )
 
     assert response.status_code == 422
+
+
+def test_predict_endpoint(client, user_a_token):
+    response = client.post(
+        "/predict/",
+        headers={"Authorization": f"Bearer {user_a_token}"},
+        json={
+            "symptoms_description": "Dor forte no peito e falta de ar súbita.",
+            "patient_age": 45,
+        },
+    )
+    assert response.status_code == 200
