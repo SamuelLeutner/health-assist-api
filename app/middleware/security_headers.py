@@ -4,9 +4,11 @@ from starlette.responses import Response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
+
+        if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
+            return response
 
         response.headers["Strict-Transport-Security"] = (
             "max-age=63072000; includeSubDomains"

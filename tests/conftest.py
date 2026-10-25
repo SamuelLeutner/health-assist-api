@@ -66,3 +66,12 @@ def user_b_token_fixture(client: TestClient, user_b: User) -> str:
     )
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    from app.security.rate_limit import limiter
+
+    if hasattr(limiter, "_storage") and hasattr(limiter._storage, "storage"):
+        limiter._storage.storage.clear()
+    yield

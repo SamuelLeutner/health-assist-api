@@ -7,9 +7,34 @@ from app.models.user import User
 from app.schemas.predict import PredictionLogResponse, PredictRequest, PredictResponse
 from app.security.jwt import get_current_user
 
-router = APIRouter(prefix="/predict", tags=["predict"])
+router = APIRouter(prefix="/predict", tags=["Predição e Triagem"])
 
-@router.post("/", response_model=PredictResponse)
+
+@router.post(
+    "/",
+    response_model=PredictResponse,
+    summary="Realiza a predição de triagem clínica com base nos sintomas",
+    responses={
+        200: {
+            "description": "Predição realizada com sucesso.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "triage_category": "Urgência Moderada",
+                        "confidence": 0.95,
+                        "message": "Predição realizada com sucesso.",
+                    }
+                }
+            },
+        },
+        401: {"description": "Token JWT ausente, expirado ou inválido."},
+        422: {
+            "description": "Dados de entrada inválidos (validação do Pydantic falhou)."
+        },
+        429: {"description": "Limite de requisições excedido (Rate Limit)."},
+    },
+)
 def predict_triage(
     request: PredictRequest,
     db: Session = Depends(get_db),

@@ -13,7 +13,27 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 AUTH_RATE_LIMIT = "5/minute"
 
 
-@router.post("/token", response_model=Token)
+@router.post(
+    "/token",
+    summary="Gera o token JWT de acesso (OAuth2)",
+    responses={
+        200: {
+            "description": "Autenticação bem-sucedida, retorna o token de acesso.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "access_token": "eyJhbGciOiJIUzI1NiIsIn...",
+                        "token_type": "bearer",
+                    }
+                }
+            },
+        },
+        400: {"description": "Credenciais incorretas ou utilizador não encontrado."},
+        429: {
+            "description": "Limite de requisições excedido (Rate Limit no endpoint de login)."
+        },
+    },
+)
 @limiter.limit(AUTH_RATE_LIMIT)
 def login_for_access_token(
     request: Request,
