@@ -55,10 +55,25 @@ healthassist-api/
 │
 ├── scripts/
 │   └── run_zap_scan.py             # Orquestra o scan ZAP via API REST
-
 │
 ├── .env-example
 ├── .gitignore
+├── fotos-eda
+│   ├── boxplot-questao-por-tipo-questao.png
+│   ├── boxplot-resposta-por-tipo-questao.png
+│   ├── print-r2.png
+│   ├── prova-mannwhitneyu.png
+│   ├── prova-scipy.png
+│   ├── qq-plot.png
+│   ├── questao-por-tipo.png
+│   ├── residual-plot.png
+│   ├── scatter-PerguntaxResposta.png
+│   ├── scatter-PerguntaxResposta-TipodeQuestao.png
+│   ├── sns-heatmap-correlacao-variaveis.png
+│   ├── sns-heatmap-especialidade-questiontype.png
+│   ├── tamanho-das-perguntas.png
+│   └── tamanho-das-respostas.png
+│
 ├── README.md
 ├── EDA.md
 └── requirements.txt
