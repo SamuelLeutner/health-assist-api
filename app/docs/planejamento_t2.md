@@ -1,40 +1,62 @@
-# Planejamento de Arquitetura e Transição para T2 (Frente de Engenharia e API)
+# Planejamento T2 — Classificador de intenções e integração na API
 
-## 1. Contexto e Preparação da API para o Trimestre 2 (T2)
+## 1. Escopo
 
-Durante o Trimestre 1 (T1), o foco esteve concentrado na construção do arcabouço de engenharia de software da API, na blindagem de segurança (autenticação JWT, rate limiting, headers OWASP e mitigação de BOLA) e na automação de testes com CI/CD. No Trimestre 2 (T2), a API está estruturada para receber a integração com os modelos preditivos e a fase de segurança ofensiva (pentest cruzado).
+Treinar um classificador de intenção (`question` → `question_type`, 7 classes) e integrá-lo ao `POST /predict/`, preservando as proteções já existentes (JWT, BOLA, rate limiting, validação, headers). Definição do problema, classes e distribuição: `docs/pergunta_de_classificacao.md`.
 
-### Definição do Problema no Escopo da API
+## 2. Protocolo experimental
 
-* **Endpoint de Predição (`/predict/`):** Projetado para receber o texto descritivo de um atendimento ou sintoma inserido por um utilizador autenticado, processar a requisição com validação rigorosa de schemas e retornar a categoria de triagem correspondente.
-* **Persistência de Logs:** Os resultados das predições continuam blindados por regras de autorização de nível de objeto (BOLA), garantindo que cada utilizador aceda estritamente aos seus próprios dados de histórico.
+| Decisão | Escolha | Motivo |
+| --- | --- | --- |
+| Alvo | `question_type` (7 classes) | rótulo presente no dataset |
+| Split | 80/20 **agrupado por texto da pergunta** | a mesma pergunta aparece em várias linhas; split por linha vaza dados |
+| Validação | `StratifiedGroupKFold` (k = 5) sobre o treino | preserva a proporção das classes sem separar perguntas iguais |
+| Teste | conjunto separado, usado uma única vez ao final | evita escolher modelo olhando o teste |
+| Métrica principal | F1 macro | classes de 1,41% a 37,01% |
 
----
+## 3. Engenharia de atributos
 
-## 2. Diretrizes de Integração de Modelos e Features (Preparação da API)
+Entrada única: o texto de `question`.
 
-Para garantir que a API suporte a transição dos dados textuais para os algoritmos preditivos que serão integrados no T2, a arquitetura foi preparada para absorver:
+- `TfidfVectorizer` em um `Pipeline` junto com o classificador (o vetorizador é ajustado só nos dados de treino de cada *fold*, sem vazamento).
+- Configuração inicial, a ser ajustada por busca em grade: `ngram_range=(1, 2)`, `min_df=5`, `sublinear_tf=True`, `strip_accents="unicode"` (usuários costumam digitar sem acento).
+- Variação a testar: n-gramas de caracteres (`analyzer="char_wb"`, 3–5) para robustez a erros de digitação.
+- Stopwords **não** serão removidas na primeira rodada: palavras interrogativas ("como", "o que", "qual") tendem a carregar a intenção. A remoção entra como ablação e só é adotada se melhorar o F1 macro.
 
-1. **Feature Engineering / Vetorização:** Utilização prevista de pipelines com **TF-IDF (Term Frequency-Inverse Document Frequency)** para conversão de texto em vetores numéricos compatíveis com os endpoints de inferência.
-2. **Modelos Candidatos (Alvos de Integração na API):**
-* **Regressão Logística (Logistic Regression):** Como modelo *baseline* leve e de alta eficiência para inferência rápida na API.
-* **Support Vector Machine (SVM) com Kernel Linear:** Avaliado para lidar com a alta dimensionalidade gerada pelo processamento de linguagem natural (NLP).
+## 4. Modelos candidatos
 
----
+| Modelo | Papel | Justificativa técnica |
+| --- | --- | --- |
+| `DummyClassifier(most_frequent)` | baseline 1 | piso de 37,01% de acurácia |
+| Regressão logística só com atributos de tamanho | baseline 2 | testa se o comprimento já separa as classes (o EDA indica que não) |
+| **Regressão logística multinomial** (TF-IDF, `class_weight="balanced"`) | candidato principal | gera probabilidades por classe (necessárias para `confidence` e limiares), é rápida em atributos esparsos e seus coeficientes são auditáveis |
+| `LinearSVC` (TF-IDF, `class_weight="balanced"`) | candidato alternativo | forte em texto de alta dimensionalidade; sem probabilidade nativa, usa `CalibratedClassifierCV` |
+| `ComplementNB` | baseline rápido opcional | desenhado para texto com classes desbalanceadas |
 
-## 3. Formalização das Classes de Triagem para os Schemas da API
+Critério de escolha: maior F1 macro na validação agrupada; em caso de empate, preferir o modelo com probabilidades nativas e menor latência. Modelos baseados em *transformers* ficam fora do T2 (custo de treino e de inferência incompatível com o escopo) e são trabalho futuro.
 
-Para manter a consistência dos contratos de dados (`Pydantic Schemas`) na API, as respostas de predição mapearão as entradas para as seguintes classes discretas:
+## 5. Critérios de aceite
 
-* **Urgência Alta (Emergência):** Sintomas críticos que exigem atendimento imediato (ex: dor intensa no peito, falta de ar súbita, desmaios).
-* **Urgência Moderada:** Sintomas que requerem avaliação médica breve, mas sem risco iminente de vida (ex: febre persistente há dias, dor de cabeça forte).
-* **Pouco Urgente / Dúvida Geral:** Casos leves, orientações ou dúvidas gerais sobre saúde e medicação.
+- F1 macro do modelo escolhido superior ao dos dois baselines.
+- Recall por classe reportado, com atenção explícita a "Anatomia e fisiologia".
+- Matriz de confusão e análise dos erros mais frequentes no relatório.
 
----
+## 6. Integração na API
 
-## 4. Segurança Ofensiva e Alvo de Pentest (TP4 / TP5)
+- Serializar o `Pipeline` completo (TF-IDF + modelo) com `joblib` e carregá-lo **uma vez**, na inicialização da aplicação.
+- Carregar apenas artefatos gerados pelo próprio projeto, com *hash* conferido na carga (desserializar `joblib`/`pickle` executa código).
+- Contrato: `PredictResponse` passa a expor `intent` (uma das 7 classes) e `confidence` (probabilidade real); o valor fixo `0.95` e a categoria `"Urgência Moderada"` saem.
+- Limitar o tamanho da entrada em `PredictRequest` (hoje só existe `min_length`); o EDA mostra textos de até centenas de palavras, então o limite precisa ser definido com base nos dados.
+- Manter o rate limiting (`30/minute`) e os testes de BOLA; adicionar testes do contrato de predição e de entrada acima do limite.
 
-Como parte integrante do planejamento técnico de transição para as próximas etapas:
+## 7. Segurança ofensiva (TP4 / TP5)
 
-* **Prontidão do Alvo:** A API encontra-se auditada, com o pipeline de CI/CD ativo no GitHub Actions e pronta para atuar como alvo seguro.
-* **Colega Adversário Identificado:** Colega Adversário / Alvo de Pentest: A definir via sorteio oficial conduzido pelo professor (conforme orientação em aula), ficando a API do grupo pronta e parametrizada para receber a auditoria de qualquer equipe designada.
+
+| Campo | Valor |
+| --- | --- |
+| Colega adversário | Arthur e Sandy |
+| URL/IP da API alvo | [URL ou IP da API do colega] |
+| Escopo e janela autorizados | [definir] |
+| Minha API (alvo do colega) | [URL ou IP onde ela ficará disponível] |
+
+Estado da minha API como alvo: ver `reports/security_checklist.md`.

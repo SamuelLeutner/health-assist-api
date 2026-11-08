@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session
 
 from app.database import get_db
@@ -6,8 +6,11 @@ from app.models.prediction_log import PredictionLog
 from app.models.user import User
 from app.schemas.predict import PredictionLogResponse, PredictRequest, PredictResponse
 from app.security.jwt import get_current_user
+from app.security.rate_limit import limiter
 
 router = APIRouter(prefix="/predict", tags=["Predição e Triagem"])
+
+PREDICT_RATE_LIMIT = "30/minute"
 
 
 @router.post(
@@ -29,14 +32,14 @@ router = APIRouter(prefix="/predict", tags=["Predição e Triagem"])
             },
         },
         401: {"description": "Token JWT ausente, expirado ou inválido."},
-        422: {
-            "description": "Dados de entrada inválidos (validação do Pydantic falhou)."
-        },
+        422: {"description": "Dados de entrada inválidos (validação do Pydantic falhou)."},
         429: {"description": "Limite de requisições excedido (Rate Limit)."},
     },
 )
+@limiter.limit(PREDICT_RATE_LIMIT)
 def predict_triage(
-    request: PredictRequest,
+    request: Request,
+    payload: PredictRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -44,12 +47,11 @@ def predict_triage(
 
     db_log = PredictionLog(
         user_id=current_user.id,
-        input_data=request.symptoms_description,
+        input_data=payload.symptoms_description,
         prediction_result=triage_category,
     )
     db.add(db_log)
     db.commit()
-    db.refresh(db_log)
 
     return PredictResponse(
         status="success",
@@ -59,13 +61,20 @@ def predict_triage(
     )
 
 
-@router.get("/{log_id}", response_model=PredictionLogResponse)
+@router.get(
+    "/{log_id}",
+    response_model=PredictionLogResponse,
+    summary="Consulta um log de predição do usuário autenticado",
+    responses={
+        401: {"description": "Token JWT ausente, expirado ou inválido."},
+        404: {"description": "Log inexistente ou pertencente a outro usuário (BOLA)."},
+    },
+)
 def get_prediction_log(
     log_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-
     log = db.get(PredictionLog, log_id)
 
     if log is None or log.user_id != current_user.id:

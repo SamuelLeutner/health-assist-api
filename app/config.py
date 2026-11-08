@@ -1,11 +1,14 @@
+from typing import Literal
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     PROJECT_NAME: str
-    SECRET_KEY: str
-    ALGORITHM: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    SECRET_KEY: str = Field(min_length=32)
+    ALGORITHM: Literal["HS256", "HS384", "HS512"]
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(gt=0)
     DATABASE_URL: str
 
     CORS_ORIGINS: str = "http://localhost:3000"

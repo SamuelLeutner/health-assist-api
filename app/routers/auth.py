@@ -15,6 +15,7 @@ AUTH_RATE_LIMIT = "5/minute"
 
 @router.post(
     "/token",
+    response_model=Token,
     summary="Gera o token JWT de acesso (OAuth2)",
     responses={
         200: {
@@ -28,7 +29,8 @@ AUTH_RATE_LIMIT = "5/minute"
                 }
             },
         },
-        400: {"description": "Credenciais incorretas ou utilizador não encontrado."},
+        401: {"description": "Credenciais incorretas ou usuário não encontrado."},
+        422: {"description": "Formulário de login malformado (campos ausentes)."},
         429: {
             "description": "Limite de requisições excedido (Rate Limit no endpoint de login)."
         },

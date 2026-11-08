@@ -1,33 +1,41 @@
 # Relatório de Auditoria de Segurança — OWASP ZAP
 
-## 1. Contexto e Escopo da Avaliação
-Este relatório documenta a varredura de segurança automatizada executada com o **OWASP ZAP (Zed Attack Proxy)** sobre a API HealthAssist. O objetivo principal foi auditar a aplicação quanto a vulnerabilidades comuns de mercado (OWASP Top 10), tais como falhas de injeção, problemas de controle de acesso (BOLA), ausência de cabeçalhos de segurança e falhas nos fluxos de autenticação.
+## 1. Escopo e método
 
-O escopo da varredura abrangeu os seguintes componentes principais expostos pela API:
-- Endpoint de Autenticação (`/auth/token`)
-- Endpoints de Status e Verificação de Integridade (`/health`)
-- Endpoints Protegidos de Predição e Logs (`/predict/` e `/predict/{log_id}`)
+- Ferramenta: OWASP ZAP 2.17.0 (Docker), orquestrado por `scripts/run_zap_scan.py`.
+- Alvo: `http://host.docker.internal:8000` (API HealthAssist).
+- Execução: **Spider + Passive Scan**. O *Active Scan* não foi executado e a varredura não usou token JWT.
+- Relatório bruto: `reports/zap_report.html` (gerado em 27/09/2026).
 
----
+## 2. Resultado
 
-## 2. Sumário Executivo dos Resultados
-Após a execução completa da varredura ativa e passiva utilizando o ZAP, o resultado consolidado foi:
-- **Alertas de Severidade Alta (High):** 0
-- **Alertas de Severidade Média (Medium):** 0
-- **Alertas de Severidade Baixa (Low):** Conforme esperado para configurações de framework.
-- **Alertas Informativos (Informational):** Relacionados a comportamento padrão de cabeçalhos do servidor de desenvolvimento.
+| Severidade | Alertas |
+| --- | ---: |
+| High | 0 |
+| Medium | 0 |
+| Low | 0 |
+| Informational | 1 |
 
----
+Único alerta: **Authentication Request Identified** (informativo), em `/auth/token`. Ele apenas indica que o ZAP reconheceu o fluxo de login; não é vulnerabilidade.
 
-## 3. Análise e Justificativa dos Findings
-A ausência total de alertas nas severidades **Alta** e **Média** valida a robustez das barreiras de segurança integradas ao longo da Fase 1 (T1) do projeto:
+Não havia findings Medium/High, portanto não houve o que corrigir. O resultado vale para o que foi exercitado, e deve ser lido com os limites abaixo.
 
-1. **Proteção contra Injeção (SQL Injection):** O uso estrito do ORM SQLModel associado a parâmetros tipados impediu qualquer comportamento anómalo detectado pelo ZAP nas entradas de dados.
-2. **Mitigação de BOLA (Broken Object Level Authorization):** O endpoint de consulta de histórico de predição (`/predict/{log_id}`) valida explicitamente se o recurso pertence ao utilizador autenticado (`log.user_id == current_user.id`), retornando `404 Not Found` caso contrário. A varredura não encontrou rotas desprotegidas de nível de objeto.
-3. **Controle de Abuso (Rate Limiting):** A aplicação implementa um limitador de requisições baseado no IP na rota sensível de login (`/auth/token`), mitigando ataques de força bruta.
-4. **Blindagem de Cabeçalhos (Security Headers):** O middleware configurado injeta ativamente os cabeçalhos essenciais exigidos pelo padrão OWASP (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security`), o que neutralizou avisos comuns de falta de hardening estrutural.
+## 3. Limites desta evidência
 
----
+- O ZAP enxergou 4 endpoints e 83% das respostas foram 4xx. Sem token, os endpoints protegidos respondem 401 (coberto em `tests/test_authentication.py`), então o ZAP não alcançou a lógica autenticada.
+- Sem Active Scan, o relatório **não** comprova ausência de injeção ou de falhas de autorização. Essas garantias vêm dos testes automatizados (`tests/`), não do ZAP.
+- O código mudou depois desta varredura (rate limit em `/predict/`, schemas de resposta no OpenAPI). A varredura precisa ser repetida.
 
-## 4. Conclusão da Auditoria
-A API HealthAssist encontra-se tecnicamente blindada contra as vulnerabilidades críticas avaliadas pelo OWASP ZAP. O sistema está auditado, com os testes automatizados integrados em pipeline de CI/CD (GitHub Actions), e formalmente **aprovado e pronto** para atuar como alvo seguro na fase de pentest do Trimestre 2.
+## 4. Controles e onde são verificados
+
+| Controle | Implementação | Verificação |
+| --- | --- | --- |
+| Autenticação JWT | `app/security/jwt.py` | `tests/test_authentication.py` |
+| BOLA | `app/routers/predict.py` (`log.user_id != current_user.id` → 404) | `tests/test_bola.py` |
+| Validação de entrada | `app/schemas/predict.py` (`extra="forbid"`, limites de idade e tamanho) | `tests/test_input_validation.py` |
+| Rate limiting | `/auth/token` 5/min, `/predict/` 30/min | `tests/test_rate_limit.py` |
+| Headers de segurança | `app/middleware/security_headers.py` | `tests/test_security_headers_and_docs.py` |
+
+## 5. Próximo passo
+
+Repetir o ZAP com a especificação OpenAPI importada, Active Scan e token válido, e atualizar este relatório e `reports/security_checklist.md` com o novo resultado.
