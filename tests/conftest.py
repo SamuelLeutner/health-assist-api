@@ -1,8 +1,5 @@
 import os
 
-# A configuração de teste precisa existir antes de qualquer import de `app`:
-# `Settings` é instanciada na importação e o `.env` de desenvolvimento nunca
-# deve vazar para os testes (nem o banco real ser tocado por eles).
 os.environ.update(
     {
         "PROJECT_NAME": "HealthAssist Test",

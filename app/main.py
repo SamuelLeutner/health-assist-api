@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -10,12 +12,22 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers import auth, health, predict
 from app.security.rate_limit import limiter
 
-init_db()
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="API para classificação de intenções e suporte médico. Inclui proteções contra BOLA, Rate Limiting e cabeçalhos de segurança padrão OWASP.",
+    description=(
+        "API para classificação de intenções e suporte médico. "
+        "Inclui proteções contra BOLA, Rate Limiting e cabeçalhos de "
+        "segurança padrão OWASP."
+    ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
