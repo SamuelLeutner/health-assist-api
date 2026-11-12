@@ -1,0 +1,3 @@
+resourceNameMappings:
+  specs:
+    - ../postman/specs/crAPI/crAPI.json: crAPI
